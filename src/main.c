@@ -2,11 +2,11 @@
 
   @file         main.c
 
-  @author       Stephen Brennan
+  @author       Stephen Brennan (Extended)
 
   @date         Thursday,  8 January 2015
 
-  @brief        LSH (Libstephen SHell)
+  @brief        LSH (Libstephen SHell) - Extended with pwd, echo, history, env
 
 *******************************************************************************/
 
@@ -17,12 +17,24 @@
 #include <stdio.h>
 #include <string.h>
 
+
+#define HISTORY_MAX_SIZE 100
+char *history_commands[HISTORY_MAX_SIZE];
+int history_count = 0;
+
+
+extern char **environ;
+
 /*
   Function Declarations for builtin shell commands:
  */
 int lsh_cd(char **args);
 int lsh_help(char **args);
 int lsh_exit(char **args);
+int lsh_pwd(char **args);
+int lsh_echo(char **args);
+int lsh_history(char **args);
+int lsh_env(char **args);
 
 /*
   List of builtin commands, followed by their corresponding functions.
@@ -30,18 +42,121 @@ int lsh_exit(char **args);
 char *builtin_str[] = {
   "cd",
   "help",
-  "exit"
+  "exit",
+  "pwd",
+  "echo",
+  "history",
+  "env"
 };
 
 int (*builtin_func[]) (char **) = {
   &lsh_cd,
   &lsh_help,
-  &lsh_exit
+  &lsh_exit,
+  &lsh_pwd,
+  &lsh_echo,
+  &lsh_history,
+  &lsh_env
 };
 
 int lsh_num_builtins() {
   return sizeof(builtin_str) / sizeof(char *);
 }
+
+
+void add_to_history(const char *line) {
+  if (line == NULL || strlen(line) == 0 || strcmp(line, "\n") == 0) {
+    return;
+  }
+  char *dup = strdup(line);
+  dup[strcspn(dup, "\n")] = 0;
+  if (strlen(dup) == 0) {
+    free(dup);
+    return;
+  }
+  if (history_count < HISTORY_MAX_SIZE) {
+    history_commands[history_count] = dup;
+    history_count++;
+  } else {
+    free(history_commands[0]);
+    for (int i = 1; i < HISTORY_MAX_SIZE; i++) {
+      history_commands[i-1] = history_commands[i];
+    }
+    history_commands[HISTORY_MAX_SIZE - 1] = dup;
+  }
+}
+
+/**
+   @brief Builtin command: history.
+   @param args List of args.
+   @return Always returns 1, to continue executing.
+ */
+int lsh_history(char **args)
+{
+  if (history_count == 0) {
+    printf("No commands in history.\n");
+    return 1;
+  }
+  for (int i = 0; i < history_count; i++) {
+    printf(" %d  %s\n", i + 1, history_commands[i]);
+  }
+  return 1;
+}
+
+/**
+   @brief Builtin command: pwd.
+   @param args List of args.
+   @return Always returns 1, to continue executing.
+ */
+int lsh_pwd(char **args)
+{
+  char cwd[1024];
+  if (getcwd(cwd, sizeof(cwd)) != NULL) {
+    printf("%s\n", cwd);
+  } else {
+    perror("lsh: pwd error");
+  }
+  return 1;
+}
+
+/**
+   @brief Builtin command: echo.
+   @param args List of args.
+   @return Always returns 1, to continue executing.
+ */
+int lsh_echo(char **args)
+{
+  int i = 1;
+  while (args[i] != NULL) {
+    printf("%s", args[i]);
+    if (args[i+1] != NULL) {
+      printf(" ");
+    }
+    i++;
+  }
+  printf("\n");
+  return 1;
+}
+
+
+
+/**
+   @brief Builtin command: env (Optional Choice).
+   @param args List of args.
+   @return Always returns 1, to continue executing.
+ */
+int lsh_env(char **args)
+{
+  if (args[1] != NULL) {
+    fprintf(stderr, "lsh: env does not expect arguments\n");
+    return 1;
+  }
+  for (char **env = environ; *env != 0; env++) {
+    printf("%s\n", *env);
+  }
+  return 1;
+}
+
 
 /*
   Builtin function implementations.
@@ -72,7 +187,7 @@ int lsh_cd(char **args)
 int lsh_help(char **args)
 {
   int i;
-  printf("Stephen Brennan's LSH\n");
+  printf("Stephen Brennan's LSH (Extended)\n");
   printf("Type program names and arguments, and hit enter.\n");
   printf("The following are built in:\n");
 
@@ -91,8 +206,13 @@ int lsh_help(char **args)
  */
 int lsh_exit(char **args)
 {
+
+  for (int i = 0; i < history_count; i++) {
+    free(history_commands[i]);
+  }
   return 0;
 }
+
 
 /**
   @brief Launch a program and wait for it to terminate.
@@ -182,6 +302,11 @@ char *lsh_read_line(void)
     c = getchar();
 
     if (c == EOF) {
+
+      for (int i = 0; i < history_count; i++) {
+        free(history_commands[i]);
+      }
+      free(buffer);
       exit(EXIT_SUCCESS);
     } else if (c == '\n') {
       buffer[position] = '\0';
@@ -232,7 +357,7 @@ char **lsh_split_line(char *line)
       tokens_backup = tokens;
       tokens = realloc(tokens, bufsize * sizeof(char*));
       if (!tokens) {
-		free(tokens_backup);
+        free(tokens_backup);
         fprintf(stderr, "lsh: allocation error\n");
         exit(EXIT_FAILURE);
       }
@@ -256,6 +381,10 @@ void lsh_loop(void)
   do {
     printf("> ");
     line = lsh_read_line();
+
+
+    add_to_history(line);
+
     args = lsh_split_line(line);
     status = lsh_execute(args);
 
@@ -281,4 +410,3 @@ int main(int argc, char **argv)
 
   return EXIT_SUCCESS;
 }
-
